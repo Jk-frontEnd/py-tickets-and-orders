@@ -1,4 +1,6 @@
 from django.db import models
+from django.contrib.auth.models import AbstractUser
+from django.conf import settings
 
 
 class Genre(models.Model):
@@ -21,6 +23,11 @@ class Movie(models.Model):
     description = models.TextField()
     actors = models.ManyToManyField(to=Actor, related_name="movies")
     genres = models.ManyToManyField(to=Genre, related_name="movies")
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["title"]),
+        ]
 
     def __str__(self) -> str:
         return self.title
@@ -50,3 +57,49 @@ class MovieSession(models.Model):
 
     def __str__(self) -> str:
         return f"{self.movie.title} {str(self.show_time)}"
+
+
+class User(AbstractUser):
+    pass
+
+
+class Order(models.Model):
+    created_at = models.DateTimeField(auto_now_add=True)
+    user = models.ForeignKey(
+        to=settings.AUTH_USER_MODEL, on_delete=models.CASCADE
+    )
+    
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"Order: {str(self.created_at)}"
+
+
+class Ticket(models.Model):
+    movie_session = models.ForeignKey(
+        to=MovieSession, on_delete=models.CASCADE, related_name="tickets"
+    )
+    order = models.ForeignKey(
+        to=Order, on_delete=models.CASCADE, related_name="tickets"
+    )
+    row = models.IntegerField()
+    seat = models.IntegerField()
+    
+    class Meta:
+        unique_together = ("movie_session", "row", "seat")
+        ordering = ["movie_session__show_time"]
+
+    def __str__(self) -> str:
+        return f"Ticket: {self.movie_session} {self.movie_session.show_time} (row: {self.row}, seat: {self.seat})"
+
+    
+    def clean(self):
+        if self.row > self.movie_session.cinema_hall.rows or self.row < 1:
+            raise ValueError("Invalid row number")
+        if self.seat > self.movie_session.cinema_hall.seats_in_row or self.seat < 1:
+            raise ValueError("Invalid seat number")
+    
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
