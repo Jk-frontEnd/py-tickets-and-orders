@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import AbstractUser
 from django.conf import settings
+from django.core.exceptions import ValidationError
 
 
 class Genre(models.Model):
@@ -66,14 +67,16 @@ class User(AbstractUser):
 class Order(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     user = models.ForeignKey(
-        to=settings.AUTH_USER_MODEL, on_delete=models.CASCADE
+        to=settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="orders"
     )
+
+    def __str__(self) -> str:
+        return self.created_at.strftime("%Y-%m-%d %H:%M:%S")
     
     class Meta:
         ordering = ["-created_at"]
-
-    def __str__(self) -> str:
-        return f"Order: {str(self.created_at)}"
 
 
 class Ticket(models.Model):
@@ -87,19 +90,31 @@ class Ticket(models.Model):
     seat = models.IntegerField()
     
     class Meta:
-        unique_together = ("movie_session", "row", "seat")
+        constraints = [
+            models.UniqueConstraint(
+                fields=["movie_session", "row", "seat"],
+                name="unique_seat_per_movie_session"
+            )]
         ordering = ["movie_session__show_time"]
 
     def __str__(self) -> str:
-        return f"Ticket: {self.movie_session} {self.movie_session.show_time} (row: {self.row}, seat: {self.seat})"
-
+        return (
+            f"{self.movie_session} {self.movie_session.show_time} "
+            f"(row: {self.row}, seat: {self.seat})"
+        )
     
     def clean(self):
+        errors = {}
+
         if self.row > self.movie_session.cinema_hall.rows or self.row < 1:
-            raise ValueError("Invalid row number")
+            errors["row"] = ["Invalid row number"]
+
         if self.seat > self.movie_session.cinema_hall.seats_in_row or self.seat < 1:
-            raise ValueError("Invalid seat number")
-    
+            errors["seat"] = ["Invalid seat number"]
+
+        if errors:
+            raise ValidationError(errors)
+
     def save(self, *args, **kwargs):
-        self.clean()
+        self.full_clean()
         super().save(*args, **kwargs)
